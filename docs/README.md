@@ -1,12 +1,13 @@
-GeoServer Configuration
-This directory is reserved for GeoServer configuration files and setup instructions.
-Status
+Запуск: 
 
-GeoServer integration is optional and not currently implemented.
-Future plans include setting up GeoServer for serving geospatial data layers.
+В папке backend запустить venv - source venv/bin/activate
 
-TODO
+установить requirements.txt
 
-Define GeoServer workspace structure
-Configure WMS/WFS endpoints
-Set up data stores for satellite imagery
+Из корня выполнить sudo ./start.sh
+
+Скрипт запуска освобождает запущенные порты:
+
+[10:31:38] Порты: FastAPI → 8001 | TiTiler → 8009
+[10:31:38] Освобождаем порт :8001...
+[10:31:39] Освобождаем порт :8009...
