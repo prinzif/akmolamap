@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@types/leaflet-side-by-side": "^2.2.4"
+  }
+}

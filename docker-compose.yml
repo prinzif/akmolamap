@@ -1,0 +1,18 @@
+services:
+  titiler:
+    image: developmentseed/titiler:latest
+    ports:
+      - "${TITILER_PORT:-8008}:8080"
+    volumes:
+      - /mnt/c/Users/admin/Documents/project/cache:/cache
+      - /mnt/c/Users/admin/Documents/project/cache/ndvi:/data/ndvi:ro   # <- монтируем правильную папку
+    environment:
+      - PORT=8080
+      - WORKERS=4
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3

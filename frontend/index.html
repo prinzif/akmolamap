@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Мониторинг событий - Акмолинская область</title>
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🗺️</text></svg>">
+
+  <!-- Leaflet — грузим ПЕРВЫМ, без defer -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- MarkerCluster -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+  <!-- Критичные библиотеки — без defer -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  
+  <!-- Leaflet плагины (второстепенные) -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet-textpath@1.2.3/leaflet.textpath.min.js" defer></script>
+
+  <!-- Пост-проверка Leaflet + «пин» API для модулей -->
+  <script>
+    (function(){
+      const ok = !!(window.L && L.Map && L.Control && L.tileLayer && L.markerClusterGroup);
+      console.log('Leaflet ready?', ok, 'version:', window.L && L.version);
+      if (!ok) {
+        throw new Error('Leaflet failed to initialize');
+      }
+      // Пришпиливаем оригинал на окне
+      window.__Leaflet = window.L;
+    })();
+  </script>
+
+  <!-- Наши стили -->
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+
+<body data-bbox="65.0,49.5,76.0,54.0"
+      data-gadm-l1="/assets/gadm41_KAZ_1.json"
+      data-gadm-l2="/assets/gadm41_KAZ_2.json"
+      data-header-url="/header">
+  <noscript>Для работы приложения требуется JavaScript.</noscript>
+
+  <!-- Header (загружается динамически) -->
+  <header id="site-header" role="banner" aria-label="Шапка сайта"></header>
+
+  <!-- Main -->
+  <div class="container">
+    <aside class="sidebar">
+      <section class="sidebar-section">
+        <h3>📍 События в Акмолинской области</h3>
+        <p style="font-size: 13px; color: #666; margin-bottom: 12px;">
+          Природные события и явления на территории региона по данным NASA EONET
+        </p>
+        <div class="date-filters">
+          <label>📅 Период:</label>
+          <input type="date" id="date-from">
+          <input type="date" id="date-to">
+        </div>
+        <div class="controls">
+          <button id="refresh-data" type="button">🔄 Обновить данные</button>
+          <button id="apply-date" type="button">📅 Применить фильтр</button>
+        </div>
+
+        <div style="margin: 16px 0; padding: 10px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px; font-size: 12px;">
+          <strong>ℹ️ Информация</strong><br>
+          Отображаются все события в пределах региона за выбранный период.
+        </div>
+
+        <h4 style="margin-top: 16px; font-size: 14px;">🔍 Фильтры по категориям</h4>
+        <div class="controls">
+          <button id="select-all" type="button">✓ Все</button>
+          <button id="deselect-all" type="button">✗ Снять</button>
+        </div>
+        <div id="category-filters"></div>
+      </section>
+
+      <section class="sidebar-section">
+        <h3>📋 Список событий</h3>
+        <input type="text" class="search-box" id="search-events" placeholder="Поиск по названию…" style="margin-bottom: 12px;">
+        <div id="event-list"></div>
+      </section>
+
+      <section class="sidebar-section">
+        <h3>📊 Легенда категорий</h3>
+        <div class="legend" id="legend"></div>
+      </section>
+    </aside>
+
+    <main class="main-content">
+      <div class="loading-overlay" id="loading" aria-hidden="true">
+        <div class="spinner" role="status" aria-label="Загрузка"></div>
+      </div>
+      <div id="map" role="region" aria-label="Карта региона"></div>
+      <div id="summary" class="summary"></div>
+    </main>
+  </div>
+
+  <!-- Локальная сборка osmtogeojson -->
+  <script src="/assets/vendor/osmtogeojson.js"></script>
+  <script>
+    // Быстрая проверка
+    console.log('osmtogeojson global =',
+      typeof ((window.osmtogeojson && (window.osmtogeojson.default || window.osmtogeojson)) || window.osmToGeoJSON)
+    );
+  </script>
+
+  <!-- App -->
+  <script src="assets/app.js"></script>
+
+  <!-- Инициализация страницы и динамический хедер -->
+  <script>
+    (function () {
+      async function mountHeader() {
+        const url = document.body?.dataset?.headerUrl || '/header';
+        try {
+          const resp = await fetch(url, { cache: 'no-cache' });
+          if (!resp.ok) throw new Error('Header HTTP ' + resp.status + ' (' + url + ')');
+          const html = await resp.text();
+
+          const el = document.getElementById('site-header');
+          if (!el) throw new Error('#site-header not found');
+
+          el.innerHTML = html;
+
+          // Активируем <script> теги
+          el.querySelectorAll('script').forEach(old => {
+            const s = document.createElement('script');
+            [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+            if (old.src) { s.async = false; } else { s.textContent = old.textContent || ''; }
+            old.replaceWith(s);
+          });
+
+          // Измеряем реальную высоту header и обновляем CSS-переменную
+          requestAnimationFrame(() => {
+            // Header монтирует #__hdr внутрь #site-header, измеряем его
+            const hdrEl = el.querySelector('#__hdr') || el.querySelector('.header') || el;
+            const h = hdrEl.offsetHeight || 64;
+            document.documentElement.style.setProperty('--header-h', h + 'px');
+            console.log('✅ Header height set to:', h + 'px');
+          });
+
+          // Обновляем карту после загрузки header
+          setTimeout(() => {
+            if (window.app?.map) {
+              window.app.map.invalidateSize();
+            }
+          }, 100);
+
+          initHeaderInteractions?.();
+          highlightActiveLink?.();
+          updateStatusBadge?.();
+          wireHeaderButtons?.();
+        } catch (e) {
+          console.error('Не удалось загрузить header:', e);
+          const el = document.getElementById('site-header');
+          if (el && !el.innerHTML.trim()) {
+            el.innerHTML = '<div class="alert warning">Хедер не загрузился</div>';
+          }
+        }
+      }
+
+      function highlightActiveLink() {
+        const current = location.pathname.replace(/\/+$/, '/') || '/';
+        document.querySelectorAll('#site-header .nav-link[href], #site-header .dropdown-item[href]').forEach(a => {
+          const href = new URL(a.href, location.origin).pathname.replace(/\/+$/, '/') || '/';
+          if (href === current) a.classList.add('active');
+        });
+      }
+
+      function initHeaderInteractions() {
+        document.querySelectorAll('#site-header .nav-item.has-dropdown > .nav-link').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const expanded = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!expanded));
+            btn.parentElement.classList.toggle('open', !expanded);
+          });
+          btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+          });
+        });
+      }
+
+      function updateStatusBadge() {
+        const badge = document.querySelector('#site-header #status-badge');
+        if (!badge) return;
+        fetch('/api/v1/settings/health')
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok) { badge.textContent = 'Онлайн'; badge.className = 'status-badge'; }
+            else if (data.cdse_ok) { badge.textContent = 'Частично'; badge.className = 'status-badge warning'; }
+            else { badge.textContent = 'Ошибка'; badge.className = 'status-badge error'; }
+          })
+          .catch(() => { badge.textContent = 'Оффлайн'; badge.className = 'status-badge error'; });
+      }
+
+      function wireHeaderButtons() {
+        document.querySelector('#site-header #btn-refresh')?.addEventListener('click', () => location.reload());
+      }
+
+      function wireSidebar() {
+        document.getElementById('refresh-data')?.addEventListener('click', () => window.app?.loadEvents?.());
+        const from = document.getElementById('date-from');
+        const to = document.getElementById('date-to');
+        if (from && !from.value) from.value = '2024-05-01';
+        if (to && !to.value) to.value = '2024-09-30';
+      }
+
+      document.addEventListener('DOMContentLoaded', () => {
+        mountHeader();
+        wireSidebar();
+      });
+    })();
+  </script>
+</body>
+</html>

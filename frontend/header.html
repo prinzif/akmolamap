@@ -1,0 +1,151 @@
+<!-- frontend/components/header.html -->
+
+<!-- Основные стили (если уже подключены в <head>, дублирование не повредит) -->
+<link rel="stylesheet" href="/assets/header.css" />
+
+<!-- Микро-fallback стили на случай, если header.css не загрузится -->
+<style>
+  #__hdr {position:fixed;left:0;top:0;right:0;z-index:10050;}
+  #__hdr .header {background:rgba(9,12,19,.9);color:#fff;border-bottom:1px solid rgba(255,255,255,.12);backdrop-filter:blur(12px) saturate(180%);}
+  #__hdr .header-content{max-width:1280px;margin:0 auto;padding:12px 24px;display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center}
+  #__hdr .logo{display:inline-flex;gap:12px;color:#fff;text-decoration:none}
+  #__hdr .nav-menu{display:flex;gap:8px;flex-wrap:wrap}
+  #__hdr .nav-link{display:flex;align-items:center;gap:8px;height:38px;padding:0 14px;border-radius:10px;color:#fff;text-decoration:none}
+  #__hdr .dropdown-menu{position:absolute;top:100%;left:0;min-width:220px;background:rgba(20,25,38,.98);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:8px;box-shadow:0 16px 40px rgba(0,0,0,.4);opacity:0;transform:translateY(6px);pointer-events:none;visibility:hidden}
+  #__hdr .nav-item{position:relative}
+  #__hdr .nav-item.open>.dropdown-menu{opacity:1;transform:translateY(0);pointer-events:auto;visibility:visible}
+  #__hdr #btn-refresh{height:38px;padding:0 14px;border-radius:10px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.1);color:#fff;cursor:pointer}
+  #__hdr #status-badge{display:inline-flex;gap:6px;align-items:center;padding:5px 10px;border-radius:999px;background:rgba(34,197,94,.15);border:1px solid rgba(34,197,94,.35);font-size:12px;color:#c7f9d4}
+  #__hdr #status-badge::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;box-shadow:0 0 6px currentColor}
+</style>
+
+<!-- ВАЖНО: не даём placeholder'у класс .header, чтобы избежать вложенной .header -->
+<div id="__hdr">
+  <header class="header" role="banner" aria-label="Шапка сайта">
+    <div class="header-content">
+      <!-- Логотип -->
+      <div class="logo-section">
+        <a href="/" class="logo">
+          <span class="logo-icon">🛰️</span>
+          <div>
+            <div>AkmolaSentinel</div>
+            <div class="logo-subtitle">Акмолинская область</div>
+          </div>
+        </a>
+      </div>
+
+      <!-- Навигация -->
+      <nav class="nav-menu" aria-label="Главная навигация">
+        <div class="nav-item">
+          <a href="/" class="nav-link" id="nav-home"><span>🗺️ Главная</span></a>
+        </div>
+
+        <div class="nav-item has-dropdown">
+          <div class="nav-link" role="button" aria-haspopup="true" aria-expanded="false">
+            <span>🌱 Вегетационные индексы ▼</span>
+          </div>
+          <div class="dropdown-menu" role="menu">
+            <a href="/ndvi" class="dropdown-item" id="nav-ndvi" role="menuitem"><span>📊 NDVI</span></a>
+            <a href="/biopar" class="dropdown-item" id="nav-biopar" role="menuitem"><span>🌿 BIOPAR</span></a>
+          </div>
+        </div>
+
+        <div class="nav-item has-dropdown">
+          <div class="nav-link" role="button" aria-haspopup="true" aria-expanded="false">
+            <span>🛰️ Данные ▼</span>
+          </div>
+          <div class="dropdown-menu" role="menu">
+            <a href="/api/v1/sentinel/search?bbox=68.0,50.0,74.0,53.5" target="_blank" class="dropdown-item" role="menuitem">
+              <span>🔍 Поиск Sentinel</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="nav-item has-dropdown">
+          <div class="nav-link" role="button" aria-haspopup="true" aria-expanded="false">
+            <span>⚙️ Система ▼</span>
+          </div>
+          <div class="dropdown-menu" role="menu">
+            <a href="/api/v1/settings/health" target="_blank" class="dropdown-item" role="menuitem">
+              <span>❤️ Health</span>
+            </a>
+            <a href="/docs" target="_blank" class="dropdown-item" role="menuitem">
+              <span>📖 API Docs</span>
+            </a>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Правая часть -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <span id="status-badge" class="status-badge" aria-live="polite">Проверка…</span>
+        <button id="btn-refresh" type="button" title="Перезагрузить страницу">🔄 Обновить</button>
+      </div>
+    </div>
+  </header>
+</div>
+
+<script>
+  // ----- Дропдауны: клик, тач, ховер (десктоп), ESC -----
+  (function navInteractions() {
+    const isPointerFine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
+    // Закрыть все
+    function closeAll() {
+      document.querySelectorAll('.nav-item.open').forEach(n => n.classList.remove('open'));
+      document.querySelectorAll('.nav-item > .nav-link[aria-expanded="true"]').forEach(n => n.setAttribute('aria-expanded', 'false'));
+    }
+
+    // Делегирование кликов
+    document.addEventListener('click', (e) => {
+      // 1) Если клик по ссылке внутри меню — даём перейти и закрываем остальные
+      const linkEl = e.target.closest('a.dropdown-item, a.nav-link');
+      if (linkEl && linkEl.closest('.dropdown-menu')) {
+        closeAll();
+        return; // переход по ссылке
+      }
+
+      // 2) Клик по тогглеру дропдауна
+      const toggler = e.target.closest('.nav-item.has-dropdown > .nav-link');
+      if (toggler) {
+        const item = toggler.parentElement; // .nav-item
+        const wasOpen = item.classList.contains('open');
+        closeAll();
+        if (!wasOpen) {
+          item.classList.add('open');
+          toggler.setAttribute('aria-expanded', 'true');
+        }
+        // если это <a>, не уводим по href="#"
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+
+      // 3) Клик вне навигации — закрыть
+      if (!e.target.closest('.nav-menu')) {
+        closeAll();
+      }
+    }, true);
+
+    // ESC закрывает
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeAll();
+    });
+
+    // На десктопах добавим hover-поведение (приятнее UX)
+    if (isPointerFine) {
+      document.querySelectorAll('.nav-item.has-dropdown').forEach((item) => {
+        const toggleEl = item.querySelector(':scope > .nav-link');
+        item.addEventListener('mouseenter', () => {
+          closeAll();
+          item.classList.add('open');
+          toggleEl?.setAttribute('aria-expanded', 'true');
+        });
+        item.addEventListener('mouseleave', () => {
+          item.classList.remove('open');
+          toggleEl?.setAttribute('aria-expanded', 'false');
+        });
+      });
+    }
+  })();
+</script>

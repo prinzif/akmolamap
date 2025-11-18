@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>BIOPAR Мониторинг - Акмолинская область</title>
+
+  <!-- Favicon -->
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Загрузчик плагинов после Leaflet (только UMD с CDN) -->
+  <script>
+    (function () {
+      function load(src) {
+        return new Promise((resolve) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.async = false;
+          s.onload = () => resolve(true);
+          s.onerror = () => resolve(false);
+          document.head.appendChild(s);
+        });
+      }
+      function waitLeaflet(max = 8000) {
+        return new Promise((resolve, reject) => {
+          const t0 = Date.now();
+          (function tick() {
+            if (window.L && L.Map) return resolve(window.L);
+            if (Date.now() - t0 > max) return reject(new Error('Leaflet failed to initialize'));
+            setTimeout(tick, 25);
+          })();
+        });
+      }
+
+      window.leafletPluginsReady = (async () => {
+        await waitLeaflet();
+
+        // side-by-side (UMD)
+        let ok = await load('https://unpkg.com/leaflet-side-by-side@2.0.1/leaflet-side-by-side.min.js');
+        if (!(ok && window.L && L.control && typeof L.control.sideBySide === 'function')) {
+          ok = await load('https://cdn.jsdelivr.net/npm/leaflet-side-by-side@2.0.1/leaflet-side-by-side.min.js');
+        }
+
+        // textpath (UMD)
+        await load('https://cdn.jsdelivr.net/npm/leaflet-textpath@1.2.3/leaflet.textpath.min.js');
+
+        window.__Leaflet = window.L;
+        console.log('Leaflet ready?', !!(window.L && L.Map && L.Control && L.tileLayer), 'version:', window.L && L.version);
+        return true;
+      })();
+    })();
+  </script>
+
+  <!-- Core libraries -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+  <script src="/assets/osmtogeojson.min.js"></script>
+
+  <!-- XSS Prevention Utilities -->
+  <script src="/assets/common-utils.js"></script>
+
+  <!-- Chart.js + zoom -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2"></script>
+
+  <!-- Leaflet plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/leaflet-textpath@1.2.3/leaflet.textpath.min.js" defer></script>
+  <link rel="stylesheet" href="/assets/leaflet-side-by-side-layout.css">
+
+  <!-- Leaflet verification -->
+  <script>
+    (function(){
+      const ok = !!(window.L && L.Map && L.Control && L.tileLayer);
+      console.log('Leaflet ready?', ok, 'version:', window.L && L.version);
+      if (!ok) throw new Error('Leaflet failed to initialize');
+      window.__Leaflet = window.L;
+    })();
+  </script>
+
+  <!-- Chart.js plugin registration -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      try {
+        if (window['chartjs-plugin-zoom']) {
+          Chart.register(window['chartjs-plugin-zoom']);
+        }
+      } catch(e) { console.warn('Chart zoom register failed:', e); }
+    });
+  </script>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="/assets/styles_biopar.css" />
+</head>
+
+<body>
+  <header id="site-header" class="header" role="banner" aria-label="Шапка сайта"></header>
+
+  <div class="container">
+    <div class="sidebar">
+      <div class="section">
+        <h3>📊 BIOPAR Мониторинг растительности</h3>
+        <p style="font-size:11px;color:#666;margin:5px 0;">
+          Биофизические параметры растительного покрова (FAPAR, LAI, FCOVER, CCC, CWC)
+        </p>
+
+        <div class="control-row" style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <label for="biopar-type" style="font-size:12px;color:#444;font-weight:600">Параметр:</label>
+          <select id="biopar-type" style="font-size:12px;flex:1">
+            <option value="FAPAR" selected>FAPAR — Поглощение PAR</option>
+            <option value="LAI">LAI — Индекс листовой площади</option>
+            <option value="FCOVER">FCOVER — Доля покрытия</option>
+            <option value="CCC">CCC — Содержание хлорофилла</option>
+            <option value="CWC">CWC — Содержание воды</option>
+          </select>
+        </div>
+
+        <div class="date-range">
+          <input type="date" id="start-date" value="2024-05-01" />
+          <input type="date" id="end-date" value="2024-09-30" />
+        </div>
+
+        <div class="controls">
+          <button id="load-biopar">🔄 Загрузить BIOPAR</button>
+          <button id="show-zones">🗺️ Показать зоны</button>
+          <button id="select-area">✏️ Выделить область</button>
+          <button id="generate-report">📑 Отчет</button>
+        </div>
+
+        <div id="selection-info" style="display:none;margin:10px 0;padding:8px;background:#e3f2fd;border-radius:4px;font-size:11px;">
+          <strong>📍 Область выделена</strong><br>
+          <span id="selection-coords"></span><br>
+          <button id="clear-selection" style="margin-top:5px;padding:4px 8px;font-size:10px;background:#dc3545;color:#fff;border:none;border-radius:3px;cursor:pointer;">
+            Очистить выделение
+          </button>
+        </div>
+
+        <div class="biopar-legend" style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:10px 0;font-size:10px">
+          <div style="background:linear-gradient(to right,#8b0000,#d2691e);color:#fff;padding:4px 2px;text-align:center;border-radius:3px;">Очень низкий</div>
+          <div style="background:#d2691e;color:#fff;padding:4px 2px;text-align:center;border-radius:3px;">Низкий</div>
+          <div style="background:#daa520;color:#333;padding:4px 2px;text-align:center;border-radius:3px;">Средний</div>
+          <div style="background:#90ee90;color:#333;padding:4px 2px;text-align:center;border-radius:3px;">Оптимальный</div>
+          <div style="background:#228b22;color:#fff;padding:4px 2px;text-align:center;border-radius:3px;">Высокий</div>
+        </div>
+
+        <div class="control-row" style="margin:8px 0">
+          <label style="font-size:12px;display:flex;gap:8px;align-items:center">
+            <input type="checkbox" id="auto-refresh" />
+            Авто-обновление при перемещении карты
+          </label>
+        </div>
+        
+        <div id="error-container"></div>
+      </div>
+
+      <div class="section">
+        <h3>🌾 Сельскохозяйственные зоны</h3>
+        <div id="zones-list"></div>
+      </div>
+
+      <div class="section">
+        <h3>🧾 Сводная статистика</h3>
+        <div id="summary"></div>
+      </div>
+
+      <div class="section">
+        <h3>🕓 Временная лента</h3>
+        <div id="timeline-row" style="display:none;gap:8px;align-items:center">
+          <input type="range" id="date-slider" min="0" max="0" value="0" style="flex:1" />
+          <span id="date-label" style="font-size:12px;color:#555">—</span>
+        </div>
+        <div class="control-row" style="margin:8px 0">
+          <label style="font-size:12px;">Скорость анимации: <span id="speed-value">1.0</span>с</label>
+          <input type="range" id="animation-speed" min="100" max="3000" value="1000" step="100" style="width:100%" />
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <button id="btn-animate">▶️ Анимация</button>
+          <button id="btn-export">⬇️ Экспорт CSV</button>
+          <select id="compare-mode" style="font-size:12px">
+            <option value="ends">Сравнить начало/конец периода</option>
+            <option value="custom">Выбрать даты…</option>
+          </select>
+          <button id="btn-compare">🪟 Сравнить</button>
+          <button id="btn-pin" class="muted">📍 Режим пинов</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <h3>📌 Сохранённые точки</h3>
+        <div id="pins"></div>
+      </div>
+
+      <div class="section">
+        <h3>📈 Динамика параметра</h3>
+        <canvas id="biopar-chart"></canvas>
+      </div>
+
+      <div class="section">
+        <h3>📊 Статистика</h3>
+        <div class="stats-grid" id="stats"></div>
+      </div>
+    </div>
+
+    <div class="main-content">
+      <div class="loading" id="loading"><div class="spinner"></div></div>
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <!-- Главный модуль приложения -->
+  <script type="module">
+    const Lf = (window.__Leaflet || window.L);
+    if (!Lf || !Lf.Map || !Lf.Control || !Lf.tileLayer) {
+      throw new Error('Leaflet API not ready inside module');
+    }
+
+    async function waitForLibraries() {
+      const maxWait = 10000, t0 = Date.now();
+      return new Promise((resolve) => {
+        (function loop(){
+          const ok = !!(window.turf && window.osmtogeojson && window.Chart);
+          if (ok) {
+            console.log('✅ Все критичные библиотеки загружены');
+            resolve();
+          } else if (Date.now() - t0 > maxWait) {
+            console.error('❌ Timeout при загрузке библиотек:', {
+              turf: !!window.turf, osmtogeojson: !!window.osmtogeojson, Chart: !!window.Chart
+            });
+            alert('Не удалось загрузить необходимые библиотеки. Проверьте подключение к интернету.');
+            resolve();
+          } else {
+            setTimeout(loop, 100);
+          }
+        })();
+      });
+    }
+
+    import {
+      fetchJSON, debounce,
+      getBIOPARColor, textColor, formatBIOPARValue, statusBIOPAR, normalizeType,
+      showError, showProgress, NoDataError, APIError, boundsToWGS84Bbox,
+      isAkmolaLike, pickAkmolaFromLevel1
+    } from "/assets/biopar-utils.js";
+
+    import { RectSelector } from "/assets/leaflet-rect-select.js";
+
+    import {
+      renderBIOPARSummary, buildBIOPARChart, exportBIOPARCSV, setupTimelineSlider,
+      runAnimation, BIOPARPins, attachBIOPARPointInspector, buildBIOPARSideBySide
+    } from "/assets/biopar-ui.js";
+
+    // ===== Overpass helper с фоллбэками =====
+    async function fetchOverpass(query, options = {}) {
+      const { showLoading = true, timeout = 30000 } = options;
+
+      const endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter"
+      ];
+
+      // Show loading indicator
+      let loadingEl = null;
+      if (showLoading) {
+        loadingEl = document.createElement('div');
+        loadingEl.id = 'overpass-loading';
+        loadingEl.innerHTML = `
+          <div style="position:fixed;top:70px;right:20px;background:rgba(0,123,255,0.95);color:#fff;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.3);z-index:10000;font-size:13px;display:flex;align-items:center;gap:10px;">
+            <div class="spinner" style="border:2px solid rgba(255,255,255,0.3);border-top:2px solid #fff;border-radius:50%;width:16px;height:16px;animation:spin 0.8s linear infinite;"></div>
+            <span>Загрузка данных OpenStreetMap...</span>
+          </div>
+        `;
+        document.body.appendChild(loadingEl);
+      }
+
+      try {
+        let lastErr;
+        for (let i = 0; i < endpoints.length; i++) {
+          const url = endpoints[i];
+          try {
+            // Create abort controller for timeout
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+            const resp = await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type":"application/x-www-form-urlencoded; charset=UTF-8" },
+              body: "data=" + encodeURIComponent(query),
+              signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+
+            if (!resp.ok) throw new Error("Overpass HTTP " + resp.status);
+
+            const data = await resp.json();
+            return data;
+          } catch (e) {
+            const isLastEndpoint = i === endpoints.length - 1;
+            console.warn(`Overpass endpoint failed (${i + 1}/${endpoints.length}):`, url, e.message);
+            lastErr = e;
+
+            // Update loading message for retries
+            if (loadingEl && !isLastEndpoint) {
+              const msgEl = loadingEl.querySelector('span');
+              if (msgEl) {
+                msgEl.textContent = `Повторная попытка (${i + 2}/${endpoints.length})...`;
+              }
+            }
+          }
+        }
+        throw lastErr || new Error("All Overpass endpoints failed");
+      } finally {
+        // Remove loading indicator
+        if (loadingEl && loadingEl.parentNode) {
+          loadingEl.parentNode.removeChild(loadingEl);
+        }
+      }
+    }
+
+    Promise.all([
+      new Promise(r => (document.readyState === 'loading') ? document.addEventListener('DOMContentLoaded', r) : r()),
+      waitForLibraries()
+    ]).then(() => {
+      console.log('🚀 Инициализация BIOPAR приложения...');
+      window.bioparApp = new BIOPARMonitoring();
+    }).catch(err => {
+      console.error('❌ Ошибка инициализации:', err);
+      alert('Не удалось загрузить необходимые библиотеки. Перезагрузите страницу.');
+    });
+
+    class BIOPARMonitoring {
+      constructor() {
+        this.API_BASE = location.origin + "/api/v1";
+        this.bbox = [65.0,49.5,76.0,54.0];
+
+        this.map = null;
+        this.layers = {};
+        this.bioparData = null;
+        this.regionPolygon = null;
+        this.useOSMForClip = true;
+
+        this.pins = new BIOPARPins();
+        this.detachInspector = null;
+        this.detachCompare = null;
+
+        this.init();
+      }
+
+      async init() {
+        this.initMap();
+        this.initUI();
+        this.loadZones();
+
+        try {
+          await this.loadOSMBoundary();
+          await this.loadOSMDistricts();
+        } catch(e) {
+          console.warn("OSM layers failed:", e);
+          this.useOSMForClip = false;
+        }
+      }
+
+      initMap() {
+        this.map = Lf.map("map", { center:[51.16,71.45], zoom:7, zoomControl:true });
+
+        // Отдельная панель для BIOPAR тайлов
+        this.map.createPane('biopar');
+        this.map.getPane('biopar').style.zIndex = 450;
+        this.map.getPane('biopar').style.pointerEvents = 'none';
+
+        this.map.on('baselayerchange', () => {
+          this.layers.biopar.eachLayer(l => l.bringToFront?.());
+        });
+
+        const osm = Lf.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          maxZoom:19, attribution:"© OpenStreetMap"
+        }).addTo(this.map);
+
+        const sat = Lf.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+          maxZoom:19, attribution:"© Esri"
+        });
+
+        this.layers.osmRegion  = Lf.layerGroup().addTo(this.map);
+        this.layers.districts  = Lf.layerGroup().addTo(this.map);
+        this.layers.zones      = Lf.layerGroup().addTo(this.map);
+        this.layers.biopar     = Lf.layerGroup().addTo(this.map);
+
+        Lf.control.layers(
+          { "Карта":osm, "Спутник":sat },
+          {
+            "Граница (OSM)": this.layers.osmRegion,
+            "Районы (OSM)": this.layers.districts,
+            "С/х зоны": this.layers.zones,
+            "BIOPAR слой": this.layers.biopar
+          },
+          { collapsed:true }
+        ).addTo(this.map);
+
+        const autoReload = debounce(() => {
+          if (document.getElementById("auto-refresh")?.checked) this.loadBIOPAR();
+        }, 2000);
+        this.map.on("moveend", autoReload);
+      }
+
+      initUI() {
+        this.pins.renderList(document.getElementById("pins"), this.map, this.getApiCtx());
+
+        document.getElementById("load-biopar").onclick = () => this.loadBIOPAR();
+        document.getElementById("show-zones").onclick = () => this.toggleZones();
+        document.getElementById("generate-report").onclick = () => this.generateReport();
+
+        const selector = new RectSelector(this.map, {
+          onSelect: (bounds) => {
+            this.selectedBounds = bounds;
+            const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+            document.getElementById("selection-coords").textContent =
+              `SW: ${sw.lat.toFixed(4)}, ${sw.lng.toFixed(4)} | NE: ${ne.lat.toFixed(4)}, ${ne.lng.toFixed(4)}`;
+            document.getElementById("selection-info").style.display = "block";
+            if (document.getElementById("auto-refresh")?.checked) this.loadBIOPAR();
+          }
+        });
+
+        document.getElementById("select-area").onclick = (e) => {
+          const btn = e.currentTarget;
+          if (!selector.active) {
+            selector.enable();
+            btn.style.background = "#28a745"; btn.style.color = "#fff"; btn.textContent = "✓ Режим выделения";
+          } else {
+            selector.disable();
+            btn.style.background = ""; btn.style.color = ""; btn.textContent = "✏️ Выделить область";
+          }
+        };
+
+        document.getElementById("clear-selection").onclick = () => {
+          selector.clear(); this.selectedBounds = null;
+          document.getElementById("selection-info").style.display = "none";
+          if (document.getElementById("auto-refresh")?.checked) this.loadBIOPAR();
+        };
+
+        document.getElementById("animation-speed")?.addEventListener("input", (e) => {
+          document.getElementById("speed-value").textContent = (e.target.value / 1000).toFixed(1);
+        });
+
+        document.getElementById("btn-animate").onclick = () => {
+          const tl = this.bioparData?.timeline || [];
+          if (!tl.length) { 
+            showError(document.getElementById("error-container"), "Нет данных для анимации", "info");
+            return; 
+          }
+
+          let paused = false;
+          let index = 0;
+
+          runAnimation({
+            btnEl: document.getElementById("btn-animate"),
+            timeline: tl,
+            onTick: async (i, row) => {
+              if (paused) return;
+              try {
+                await this.visualizeBIOPAROnMap(row.date);
+                document.getElementById("date-slider").value = i;
+                const delay = parseInt(document.getElementById("animation-speed")?.value || 1000);
+                await new Promise(resolve => setTimeout(resolve, delay));
+              } catch (e) {
+                console.error("Animation frame error:", e);
+                if (e?.status >= 500 || String(e?.message||"").includes("HTTP 5")) {
+                  paused = true;
+                  showError(document.getElementById("error-container"), 
+                    "BIOPAR сервис временно недоступен (5xx). Анимация поставлена на паузу.", "warning");
+                }
+              }
+            },
+            getIndex: () => index,
+            setIndex: (v) => { index = v; }
+          });
+        };
+
+        document.getElementById("btn-compare").onclick = async () => {
+          const tl = this.bioparData?.timeline || [];
+          if (!tl.length) { 
+            showError(document.getElementById("error-container"), "Сначала загрузите BIOPAR данные", "info");
+            return; 
+          }
+          
+          if (this.detachCompare) { 
+            this.detachCompare(); 
+            this.detachCompare = null; 
+            return; 
+          }
+
+          const mode = document.getElementById("compare-mode").value;
+          let d1 = tl[0].date, d2 = tl.at(-1).date;
+          
+          if (mode === "custom") {
+            d1 = prompt("Первая дата (YYYY-MM-DD):", d1) || d1;
+            d2 = prompt("Вторая дата (YYYY-MM-DD):", d2) || d2;
+          }
+          
+          try {
+            this.detachCompare = await buildBIOPARSideBySide({
+              map: this.map, 
+              apiBase: this.API_BASE, 
+              bbox: this.mapBboxForBackend(), 
+              dateA: d1, 
+              dateB: d2, 
+              bioparType: this.currentType()
+            });
+          } catch (e) {
+            console.error("Side-by-side error:", e);
+            showError(document.getElementById("error-container"), 
+              "Ошибка режима сравнения. Проверьте консоль.", "error");
+          }
+        };
+
+        document.getElementById("btn-export").onclick = () => {
+          const tl = this.bioparData?.timeline || [];
+          if (!tl.length) {
+            showError(document.getElementById("error-container"), "Нет данных для экспорта", "info");
+            return;
+          }
+          exportBIOPARCSV(tl, this.currentType());
+        };
+
+        document.getElementById("btn-pin").onclick = (e) => {
+          this.map._pinning = !this.map._pinning;
+          e.currentTarget.classList.toggle("muted", !this.map._pinning);
+          this.map.getContainer().style.cursor = this.map._pinning ? "cell" : "";
+        };
+
+        // Слушаем изменение типа параметра
+        document.getElementById("biopar-type").addEventListener("change", () => {
+          if (this.bioparData) {
+            this.loadBIOPAR(); // Перезагружаем при смене параметра
+          }
+        });
+      }
+
+      currentType() {
+        return document.getElementById("biopar-type").value || "FAPAR";
+      }
+
+      mapBboxForBackend() {
+        if (this.selectedBounds) {
+          const sw = this.selectedBounds.getSouthWest(), ne = this.selectedBounds.getNorthEast();
+          return [sw.lng, sw.lat, ne.lng, ne.lat];
+        }
+        const b = this.map.getBounds();
+        return [b.getWest(), b.getSouth(), b.getEast(), b.getNorth()];
+      }
+
+      async loadZones() {
+        // Используем те же зоны что и для NDVI
+        this.zones = [
+          { name:"Северная зона", description:"Основная зерновая зона", center:[52.28,70.4], area_ha:1200000, typical_crops:["Пшеница","Ячмень"] },
+          { name:"Центральная зона", description:"Смешанное земледелие", center:[51.16,71.45], area_ha:950000, typical_crops:["Пшеница","Подсолнечник","Лён"] },
+          { name:"Южная зона", description:"Орошаемое земледелие", center:[50.4,72.3], area_ha:780000, typical_crops:["Кукуруза","Овощи"] }
+        ];
+        
+        const container = document.getElementById("zones-list");
+        container.innerHTML = "";
+
+        (this.zones||[]).forEach(zone => {
+          const div = document.createElement("div");
+          div.className = "zone-item";
+
+          // Safe HTML construction using escapeHtml to prevent XSS
+          const safeName = escapeHtml(zone.name);
+          const safeDescription = escapeHtml(zone.description);
+          const safeArea = sanitizeNumber(zone.area_ha / 1000, 0);
+          const safeCrops = sanitizeArray(zone.typical_crops);
+
+          div.innerHTML = `
+            <strong>${safeName}</strong><br>
+            <small>${safeDescription}</small><br>
+            <small>Площадь: ${safeArea} тыс. га</small><br>
+            <small>Культуры: ${safeCrops}</small>`;
+          div.onclick = () => {
+            this.map.setView(zone.center, 9);
+            div.classList.add("active");
+            setTimeout(()=>div.classList.remove("active"), 2000);
+          };
+          container.appendChild(div);
+        });
+      }
+
+      toggleZones() {
+        const g = this.layers.zones; 
+        const has = g.getLayers().length > 0;
+        if (has) { g.clearLayers(); return; }
+        
+        g.clearLayers();
+        (this.zones||[]).forEach(zone => {
+          // Safe HTML for popup to prevent XSS
+          const safeName = escapeHtml(zone.name);
+          const safeDescription = escapeHtml(zone.description);
+          const safeArea = sanitizeNumber(zone.area_ha / 1000, 0);
+          const safeCrops = sanitizeArray(zone.typical_crops);
+
+          Lf.circleMarker(zone.center, {
+            radius: Math.sqrt(zone.area_ha/1000)*2,
+            color:"#007cba",
+            fillColor:"#007cba",
+            fillOpacity:.3,
+            weight:2
+          }).bindPopup(
+            `<div class="popup-content">
+              <h4>${safeName}</h4>
+              <div class="info-row">📍 Площадь: ${safeArea} тыс. га</div>
+              <div class="info-row">🌾 Культуры: ${safeCrops}</div>
+              <div class="info-row">${safeDescription}</div>
+            </div>`
+          ).addTo(g);
+        });
+      }
+
+      async loadBIOPAR() {
+        const errorContainer = document.getElementById("error-container");
+        errorContainer.innerHTML = ""; 
+        
+        const loadingEl = document.getElementById("loading");
+        loadingEl.classList.add("active");
+        
+        const start = document.getElementById("start-date").value;
+        const end = document.getElementById("end-date").value;
+        const bioparType = this.currentType();
+        
+        try {
+          const bbox = this.mapBboxForBackend();
+          
+          // 1. Сводная статистика
+          await renderBIOPARSummary({
+            apiBase: this.API_BASE,
+            bbox, start, end, bioparType,
+            container: document.getElementById("summary")
+          });
+
+          // 2. Временной ряд
+          const url = `${this.API_BASE}/biopar/timeseries?bbox=${bbox.join(",")}&start=${start}&end=${end}&biopar_type=${bioparType}&agg=10`;
+          const data = await fetchJSON(url, { maxRetries: 2, retryDelay: 3000 });
+          
+          if (data.status !== "success") {
+            throw new Error("Timeseries API returned non-success status");
+          }
+          
+          this.bioparData = data;
+
+          this.renderStats();
+          buildBIOPARChart({ 
+            canvas: document.getElementById("biopar-chart"), 
+            timeline: data.timeline, 
+            bioparType 
+          });
+
+          await this.visualizeBIOPAROnMap();
+
+          setupTimelineSlider({
+            rowEl: document.getElementById("timeline-row"),
+            sliderEl: document.getElementById("date-slider"),
+            labelEl: document.getElementById("date-label"),
+            timeline: data.timeline,
+            onChange: async (_i,row) => {
+              try { 
+                await this.visualizeBIOPAROnMap(row.date); 
+              } catch(e){ 
+                console.error("Slider change error:", e); 
+              }
+            }
+          });
+          
+        } catch (e) {
+          console.error("loadBIOPAR error:", e);
+          
+          if (e instanceof NoDataError) {
+            showError(errorContainer, 
+              "Нет доступных спутниковых данных для выбранного периода и области. Попробуйте расширить диапазон дат.",
+              "warning"
+            );
+          } else if (e instanceof APIError && e.status >= 500) {
+            showError(errorContainer, 
+              "Сервис BIOPAR временно недоступен. Попробуйте позже.",
+              "error"
+            );
+          } else {
+            showError(errorContainer,
+              "Не удалось загрузить BIOPAR данные. Проверьте доступность API.",
+              "error"
+            );
+          }
+        } finally {
+          loadingEl.classList.remove("active");
+        }
+      }
+
+      async visualizeBIOPAROnMap(dateOverride = null) {
+        this.layers.biopar.clearLayers();
+        if (this.detachInspector) { 
+          this.detachInspector(); 
+          this.detachInspector = null; 
+        }
+
+        if (!Lf || typeof Lf.tileLayer !== 'function') {
+          throw new Error('Leaflet API not ready: tileLayer missing');
+        }
+
+        const bbox  = this.mapBboxForBackend();
+        const start = dateOverride || document.getElementById("start-date").value;
+        const end   = dateOverride || document.getElementById("end-date").value;
+        const bioparType = this.currentType();
+        
+        if (!start || !end) throw new Error('Dates are empty');
+
+        let resp;
+        try {
+          const url = `${this.API_BASE}/biopar/geotiff?bbox=${bbox.join(",")}&start=${start}&end=${end}&biopar_type=${bioparType}`;
+          resp = await fetchJSON(url, { maxRetries: 1 });
+        } catch (e) { 
+          throw e; 
+        }
+
+        let tiffUrl = null;
+        if (resp instanceof Blob) tiffUrl = URL.createObjectURL(resp);
+        else if (typeof resp === 'string') tiffUrl = resp;
+        else if (resp && typeof resp === 'object' && resp.tiff_url) tiffUrl = resp.tiff_url;
+
+        if (!tiffUrl) throw new Error('BIOPAR endpoint returned no tiff_url/data');
+
+        const tiffUrlForTitiler = tiffUrl.replace("localhost", "host.docker.internal");
+
+        
+
+
+        // Определяем rescale в зависимости от типа
+        const rescale = (() => {
+          const T = normalizeType(bioparType);
+          if (T === "FAPAR" || T === "FCOVER") return "0,1";
+          if (T === "LAI") return "0,6";
+          if (T === "CCC") return "0,300";
+          if (T === "CWC") return "0,600";
+          return "0,1"; // fallback
+        })();
+
+        const tileUrl =
+          `/titiler/cog/tiles/WebMercatorQuad/{z}/{x}/{y}` +
+          `?url=${encodeURIComponent(tiffUrlForTitiler)}&bidx=1&rescale=${rescale}&colormap_name=rdylgn&return_mask=true`;
+
+        Lf.tileLayer(tileUrl, {
+          pane: 'biopar',
+          opacity: .95,
+          attribution: `© Copernicus BIOPAR ${bioparType}`,
+          maxZoom: 18,
+          tileSize: 256
+        }).addTo(this.layers.biopar);
+
+        this.detachInspector = await attachBIOPARPointInspector({
+          map: this.map, 
+          tiffUrl, 
+          start, 
+          end, 
+          bioparType,
+          apiBase: this.API_BASE,
+          bbox,
+          pins: this.pins
+        });
+
+        this.pins.renderList(document.getElementById("pins"), this.map, this.getApiCtx());
+      }
+
+      renderStats() {
+        const timeline = this.bioparData.timeline || [];
+        const bioparType = this.currentType();
+        
+        if (!timeline.length) {
+          document.getElementById("stats").innerHTML = '<div style="text-align:center;color:#666;padding:20px">Нет данных</div>';
+          return;
+        }
+
+        // Берём последнюю точку для статистики
+        const last = timeline[timeline.length - 1];
+        const mean = last.mean;
+        const status = statusBIOPAR(bioparType, mean);
+        const color = getBIOPARColor(bioparType, mean);
+        
+        let html = `
+          <div class="stat-item">
+            <div class="stat-value" style="color:${color}">${formatBIOPARValue(bioparType, mean)}</div>
+            <div class="stat-label">Средний ${bioparType}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">${formatBIOPARValue(bioparType, last.p50 ?? last.median)}</div>
+            <div class="stat-label">Медиана</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">${timeline.length}</div>
+            <div class="stat-label">Наблюдений</div>
+          </div>`;
+
+        const t = this.bioparData.trend;
+        if (t && t.direction !== "insufficient_data") {
+          const arrow = t.direction === "increasing" ? "↗" : t.direction === "decreasing" ? "↘" : "→";
+          const trendColor = t.direction === "increasing" ? "#28a745" : t.direction === "decreasing" ? "#dc3545" : "#6c757d";
+          html += `
+            <div class="stat-item">
+              <div class="stat-value" style="color:${trendColor}">${arrow} ${t.direction}</div>
+              <div class="stat-label">Тренд (R²: ${t.r_squared})</div>
+            </div>`;
+        }
+        
+        if (status) {
+          const colors = { 
+            optimal:"#28a745", high:"#007cba", moderate:"#6c757d",
+            low:"#ffc107", very_low:"#dc3545", no_data:"#999" 
+          };
+          const c = colors[status.status] || "#6c757d";
+          html += `
+            <div class="stat-item" style="grid-column:1/-1;">
+              <div class="stat-value" style="background:${c};color:white;padding:8px;border-radius:4px;">
+                ${status.level.toUpperCase()}
+              </div>
+              <div class="stat-label">${status.description}</div>
+            </div>`;
+        }
+        
+        document.getElementById("stats").innerHTML = html;
+      }
+
+      // ===== OSM: граница области (admin_level=4) =====
+      async loadOSMBoundary() {
+        const query = `
+          [out:json][timeout:60];
+          (
+            area["name:en"="Akmola Region"];
+            area["name"="Aqmola Region"];
+            area["name"="Акмолинская область"];
+          )->.reg;
+          (
+            relation["boundary"="administrative"]["admin_level"="4"](area.reg);
+          );
+          out geom;`;
+        
+        const osmJson = await fetchOverpass(query);
+        const gj = osmtogeojson(osmJson);
+        const feats = (gj.type === "FeatureCollection") ? gj.features : [gj];
+
+        let best=null, bestArea=-1;
+        for (const f of feats){ 
+          if(!f.geometry) continue; 
+          try{ const a=turf.area(f); if(a>bestArea){bestArea=a; best=f;} }catch{} 
+        }
+        if (!best) throw new Error("OSM boundary not found");
+
+        this.layers.osmRegion.clearLayers();
+        const osmGeo = Lf.geoJSON(best, {
+          style:{ color:"#7c3aed", weight:3, fillOpacity:.10, dashArray:"4,3" },
+          onEachFeature: (f,layer) => layer.bindTooltip(
+            f.properties?.name || "OSM граница Акмолинской области",
+            { permanent:false, direction:"auto", className:"region-label" }
+          )
+        }).addTo(this.layers.osmRegion);
+
+        const bounds = osmGeo.getBounds();
+        if (bounds.isValid()) this.map.fitBounds(bounds, { padding:[20,20] });
+
+        this.regionPolygon = (best.geometry.type === "Polygon")
+          ? turf.polygon(best.geometry.coordinates)
+          : turf.multiPolygon(best.geometry.coordinates);
+      }
+
+      // ===== OSM: районы области (admin_level=6) =====
+      async loadOSMDistricts() {
+        const query = `
+          [out:json][timeout:60];
+          (
+            area["name:en"="Akmola Region"];
+            area["name"="Aqmola Region"];
+            area["name"="Акмолинская область"];
+          )->.reg;
+          (
+            relation["boundary"="administrative"]["admin_level"="6"](area.reg);
+          );
+          out geom;`;
+
+        const osmJson = await fetchOverpass(query);
+        const gj = osmtogeojson(osmJson);
+        const feats = (gj.type === "FeatureCollection") ? gj.features : [gj];
+        if (!feats.length) {
+          console.warn("No OSM districts found (admin_level=6)");
+          return;
+        }
+
+        this.layers.districts.clearLayers();
+        const fc = { type:"FeatureCollection", features:feats };
+
+        Lf.geoJSON(fc, {
+          style:{ color:"#1d4ed8", weight:1.5, fillOpacity:.05 },
+          onEachFeature:(f,layer) => {
+            const name = f.properties?.["name:ru"] || f.properties?.["name:kk"] || f.properties?.name || "Район";
+            layer.bindTooltip(name, { permanent:false, direction:"auto", className:"district-label" });
+
+            try {
+              if (layer instanceof L.Polygon || layer instanceof L.MultiPolygon) {
+                const center = layer.getBounds().getCenter();
+                layer.bindPopup(`<div class="popup-content"><strong>${name}</strong></div>`);
+                Lf.circleMarker(center, { radius: 2, weight:0, fillOpacity:0 }).addTo(this.layers.districts)
+                  .bindTooltip(name, { permanent:false, direction:"top", className:"district-label" });
+              }
+            } catch {}
+          }
+        }).addTo(this.layers.districts);
+      }
+
+      async generateReport() {
+        const errorContainer = document.getElementById("error-container");
+        const loadingEl = document.getElementById("loading");
+        
+        loadingEl.classList.add("active");
+        
+        const end = document.getElementById("end-date").value;
+        const bioparType = this.currentType();
+        
+        try {
+          const bbox = this.mapBboxForBackend();
+          const areaType = this.selectedBounds ? "выделенной области" : "текущей области карты";
+          
+          const url = `${this.API_BASE}/biopar/report?bbox=${bbox.join(",")}&date=${end}&biopar_type=${bioparType}`;
+          const report = await fetchJSON(url, { maxRetries: 1 });
+          
+          report._areaType = areaType;
+          
+          // Формируем HTML отчёта
+          const recs = (report.recommendations || [])
+            .map(r => `<li style="margin:4px 0;list-style:none;">${r}</li>`)
+            .join("");
+          
+          const stats = report.statistics || {};
+          const status = report.summary?.status || statusBIOPAR(bioparType, stats.mean);
+          const statusColor = getBIOPARColor(bioparType, stats.mean);
+          
+          const reportHTML = `
+            <div class="popup-content" style="max-width:420px;max-height:540px;overflow-y:auto;">
+              <h4 style="margin:0 0 10px 0;">📑 Отчет ${bioparType}</h4>
+              <div style="font-size:11px;margin:3px 0;">📅 Дата: ${report.report_date || "—"}</div>
+              <div style="font-size:11px;margin:3px 0;">📊 Период: ${report.period_analyzed || "—"}</div>
+              <div style="font-size:11px;margin:3px 0;">📍 Область: ${areaType}</div>
+              
+              <div style="margin:10px 0;padding:10px;background:#f8f9fa;border-radius:4px;border-left:4px solid ${statusColor};">
+                <strong>Состояние: ${status.level.toUpperCase()}</strong><br>
+                <span style="font-size:11px;color:#666">${status.description}</span>
+              </div>
+              
+              <div style="margin:10px 0;display:grid;grid-template-columns:repeat(3, 1fr);gap:8px;">
+                <div style="padding:8px;background:#f8f9fa;border-radius:4px;text-align:center;">
+                  <div style="font-size:18px;font-weight:bold;color:#007cba">${formatBIOPARValue(bioparType, stats.mean)}</div>
+                  <div style="font-size:10px;color:#666">Средний</div>
+                </div>
+                <div style="padding:8px;background:#f8f9fa;border-radius:4px;text-align:center;">
+                  <div style="font-size:18px;font-weight:bold;color:#28a745">${report.total_observations || 0}</div>
+                  <div style="font-size:10px;color:#666">Наблюдений</div>
+                </div>
+                <div style="padding:8px;background:#f8f9fa;border-radius:4px;text-align:center;">
+                  <div style="font-size:18px;font-weight:bold;color:#6c757d">${stats.pixels || 0}</div>
+                  <div style="font-size:10px;color:#666">Пикселей</div>
+                </div>
+              </div>
+              
+              ${recs ? `<div style="background:#e7f3ff;padding:10px;border-radius:4px;margin-top:10px;border-left:4px solid #007cba;">
+                <h4 style="margin:0 0 8px 0;font-size:13px;color:#007cba">💡 Рекомендации:</h4>
+                <ul style="margin:0;padding:0;font-size:11px;">${recs}</ul>
+              </div>` : ""}
+            </div>`;
+          
+          Lf.popup({ maxWidth:460, maxHeight:580 })
+            .setLatLng(this.map.getCenter())
+            .setContent(reportHTML)
+            .openOn(this.map);
+            
+        } catch (e) {
+          console.error("Report generation error:", e);
+          
+          if (e instanceof NoDataError) {
+            showError(errorContainer, 
+              "Нет данных для генерации отчёта за выбранный период",
+              "warning"
+            );
+          } else {
+            showError(errorContainer, 
+              "Ошибка генерации отчёта. Попробуйте позже.",
+              "error"
+            );
+          }
+        } finally {
+          loadingEl.classList.remove("active");
+        }
+      }
+
+      getApiCtx() {
+        return {
+          apiBase: this.API_BASE,
+          bbox: this.mapBboxForBackend(),
+          start: document.getElementById("start-date").value,
+          end: document.getElementById("end-date").value,
+          bioparType: this.currentType()
+        };
+      }
+    }
+  </script>
+
+  <!-- Монтирование header -->
+  <script>
+    (function () {
+      async function mountHeader() {
+        const url = document.body?.dataset?.headerUrl || '/header';
+        try {
+          const resp = await fetch(url, { cache: 'no-cache' });
+          if (!resp.ok) throw new Error('Header HTTP ' + resp.status + ' (' + url + ')');
+          const html = await resp.text();
+
+          const el = document.getElementById('site-header');
+          if (!el) throw new Error('#site-header not found');
+
+          el.innerHTML = html;
+
+          el.querySelectorAll('script').forEach(old => {
+            const s = document.createElement('script');
+            [...old.attributes].forEach(a => s.setAttribute(a.name, a.value));
+            if (old.src) { s.async = false; } else { s.textContent = old.textContent || ''; }
+            old.replaceWith(s);
+          });
+
+          initHeaderInteractions?.();
+          highlightActiveLink?.();
+          updateStatusBadge?.();
+          wireHeaderButtons?.();
+        } catch (e) {
+          console.error('Не удалось загрузить header:', e);
+          const el = document.getElementById('site-header');
+          if (el && !el.innerHTML.trim()) {
+            el.innerHTML = '<div class="alert warning">Хедер не загрузился</div>';
+          }
+        }
+      }
+
+      function highlightActiveLink() {
+        const current = location.pathname.replace(/\/+$/, '/') || '/';
+        document.querySelectorAll('#site-header .nav-link[href], #site-header .dropdown-item[href]').forEach(a => {
+          const href = new URL(a.href, location.origin).pathname.replace(/\/+$/, '/') || '/';
+          if (href === current) a.classList.add('active');
+        });
+      }
+
+      function initHeaderInteractions() {
+        document.querySelectorAll('#site-header .nav-item.has-dropdown > .nav-link').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const expanded = btn.getAttribute('aria-expanded') === 'true';
+            btn.setAttribute('aria-expanded', String(!expanded));
+            btn.parentElement.classList.toggle('open', !expanded);
+          });
+          btn.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); btn.click(); }
+          });
+        });
+      }
+
+      function updateStatusBadge() {
+        const badge = document.querySelector('#site-header #status-badge');
+        if (!badge) return;
+        fetch('/api/v1/settings/health')
+          .then(r => r.json())
+          .then(data => {
+            if (data.ok) { 
+              badge.textContent = 'Онлайн'; 
+              badge.className = 'status-badge'; 
+            } else if (data.cdse_ok || data.openeo_ok) { 
+              badge.textContent = 'Частично'; 
+              badge.className = 'status-badge warning'; 
+            } else { 
+              badge.textContent = 'Ошибка'; 
+              badge.className = 'status-badge error'; 
+            }
+          })
+          .catch(() => { 
+            badge.textContent = 'Оффлайн'; 
+            badge.className = 'status-badge error'; 
+          });
+      }
+
+      function wireHeaderButtons() {
+        document.querySelector('#site-header #btn-refresh')?.addEventListener('click', () => location.reload());
+      }
+
+      document.addEventListener('DOMContentLoaded', () => { mountHeader(); });
+    })();
+  </script>
+
+  <!-- Global Error Boundary -->
+  <script>
+    (function() {
+      // Container for global error notifications
+      let errorNotificationDiv = null;
+
+      function showGlobalError(message, level = 'error') {
+        if (!errorNotificationDiv) {
+          errorNotificationDiv = document.createElement('div');
+          errorNotificationDiv.id = 'global-error-notification';
+          errorNotificationDiv.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            max-width: 400px;
+            padding: 16px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            font-size: 14px;
+            line-height: 1.5;
+            animation: slideIn 0.3s ease-out;
+          `;
+          document.body.appendChild(errorNotificationDiv);
+        }
+
+        // Set color based on level
+        const colors = {
+          error: { bg: '#fee', border: '#c33', text: '#c33' },
+          warning: { bg: '#fff3cd', border: '#ffc107', text: '#856404' },
+          info: { bg: '#d1ecf1', border: '#17a2b8', text: '#0c5460' }
+        };
+        const color = colors[level] || colors.error;
+
+        errorNotificationDiv.style.backgroundColor = color.bg;
+        errorNotificationDiv.style.borderLeft = `4px solid ${color.border}`;
+        errorNotificationDiv.style.color = color.text;
+        errorNotificationDiv.textContent = message;
+
+        // Auto-hide after 8 seconds
+        setTimeout(() => {
+          if (errorNotificationDiv) {
+            errorNotificationDiv.style.opacity = '0';
+            setTimeout(() => {
+              if (errorNotificationDiv && errorNotificationDiv.parentNode) {
+                errorNotificationDiv.parentNode.removeChild(errorNotificationDiv);
+                errorNotificationDiv = null;
+              }
+            }, 300);
+          }
+        }, 8000);
+      }
+
+      // Add animations
+      const style = document.createElement('style');
+      style.textContent = `
+        @keyframes slideIn {
+          from { transform: translateX(400px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `;
+      document.head.appendChild(style);
+
+      // Global error handler for uncaught errors
+      window.addEventListener('error', (event) => {
+        console.error('Uncaught error:', event.error);
+        const message = event.error?.message || 'An unexpected error occurred';
+        showGlobalError(`Error: ${message}. Please refresh the page.`, 'error');
+      });
+
+      // Global handler for unhandled promise rejections
+      window.addEventListener('unhandledrejection', (event) => {
+        console.error('Unhandled promise rejection:', event.reason);
+        const message = event.reason?.message || event.reason || 'Promise rejection';
+        showGlobalError(`Async Error: ${message}. Please try again.`, 'error');
+        event.preventDefault(); // Prevent default browser handling
+      });
+
+      console.log('✅ Global error boundary initialized');
+    })();
+  </script>
+</body>
+</html>

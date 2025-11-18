@@ -1,0 +1,326 @@
+/* ==========================================================================
+   HEADER UI — Обновленный стиль
+   ========================================================================== */
+
+/* ---------- Переменные темы ---------- */
+:root {
+  --hdr-bg: rgba(10, 14, 23, 0.75);
+  --hdr-border: rgba(255, 255, 255, 0.12);
+  --hdr-text: #ffffff;
+  --hdr-text-dim: #c9d1d9;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --hover: rgba(255, 255, 255, 0.08);
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --radius: 12px;
+  --dropdown-bg: rgba(20, 25, 38, 0.98);
+  --dropdown-border: rgba(255, 255, 255, 0.08);
+}
+
+/* Корневой контейнер, который ты монтируешь динамически */
+#site-header { position: relative; z-index: 1002; }
+
+/* ---------- Header основной ---------- */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 1002; /* поверх карты и контролов Leaflet */
+  color: var(--hdr-text);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  background: linear-gradient(180deg, rgba(9, 12, 19, 0.88) 0%, var(--hdr-bg) 100%);
+  border-bottom: 1px solid var(--hdr-border);
+  box-shadow: var(--shadow);
+}
+
+.header * { box-sizing: border-box; }
+
+.header .header-content {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 20px;
+  align-items: center;
+}
+
+/* ---------- Logo ---------- */
+.header .logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--hdr-text);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: 10px;
+  transition: background .2s ease, transform .15s ease;
+  user-select: none;
+}
+
+.header .logo:hover { background: var(--hover); }
+.header .logo:active { transform: translateY(1px); }
+
+.header .logo-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: radial-gradient(120% 120% at 30% 20%, #7dd3fc 0%, #2563eb 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.35), 0 6px 16px rgba(37, 99, 235, 0.35);
+  font-size: 20px;
+}
+
+.header .logo > div {
+  line-height: 1.05;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  font-size: 16px;
+}
+
+.header .logo-subtitle {
+  color: var(--hdr-text-dim);
+  font-weight: 500;
+  font-size: 12px;
+  opacity: .9;
+  margin-top: 2px;
+}
+
+/* ---------- Navigation ---------- */
+.nav-menu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.nav-item { position: relative; }
+.nav-item.has-dropdown { /* для скриптового класса */ }
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--hdr-text);
+  text-decoration: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all .2s ease;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.nav-link:hover {
+  background: var(--hover);
+  color: var(--accent-hover);
+}
+
+.nav-link.active {
+  background: rgba(88, 166, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(88, 166, 255, 0.35);
+  color: #dbeafe;
+}
+
+.nav-link.active:hover { background: rgba(88, 166, 255, 0.22); }
+
+/* ---------- Dropdown Menu ---------- */
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  background: var(--dropdown-bg);
+  border: 1px solid var(--dropdown-border);
+  border-radius: var(--radius);
+  padding: 8px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity .2s ease, transform .2s ease, visibility 0s linear .2s;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 1003; /* поверх хедера */
+}
+
+/* Показываем при hover/фокусе/JS-классе .open */
+.nav-item:hover > .dropdown-menu,
+.nav-item:focus-within > .dropdown-menu,
+.nav-item.open > .dropdown-menu {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+/* «Мостик» чтобы не ронять hover между ссылкой и меню */
+.dropdown-menu::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0;
+  top: -10px; height: 10px;
+}
+
+/* Пункты меню */
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: var(--hdr-text-dim);
+  text-decoration: none;
+  font-size: 14px;
+  transition: all .15s ease;
+  white-space: nowrap;
+}
+.dropdown-item:hover {
+  background: rgba(88, 166, 255, 0.12);
+  color: #e6f1ff;
+}
+.dropdown-item.active {
+  background: rgba(88, 166, 255, 0.16);
+  color: #dbeafe;
+}
+
+/* ---------- Кнопки справа (в т.ч. #btn-refresh) ---------- */
+.header .header-content > button,
+#site-header #btn-refresh {
+  height: 38px;
+  line-height: 36px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--hdr-text);
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: all .2s ease;
+}
+.header .header-content > button:hover,
+#site-header #btn-refresh:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 6px 18px rgba(0, 0, 0, 0.2);
+  transform: translateY(-1px);
+}
+.header .header-content > button:active,
+#site-header #btn-refresh:active { transform: translateY(0); }
+
+/* ---------- Значок статуса (#status-badge) ---------- */
+.status-badge,
+#site-header #status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #c7f9d4;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.15);
+  user-select: none;
+}
+.status-badge::before,
+#site-header #status-badge::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+.status-badge.warning,
+#site-header #status-badge.warning {
+  background: rgba(245, 158, 11, 0.18);
+  color: #ffe8c2;
+  border-color: rgba(245, 158, 11, 0.38);
+  box-shadow: 0 2px 8px rgba(245, 158, 11, 0.15);
+}
+.status-badge.error,
+#site-header #status-badge.error {
+  background: rgba(239, 68, 68, 0.18);
+  color: #ffd3d3;
+  border-color: rgba(239, 68, 68, 0.38);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
+}
+
+/* ---------- Адаптивность ---------- */
+@media (max-width: 1024px) {
+  .header .header-content {
+    grid-template-columns: auto 1fr auto;
+    gap: 16px;
+    padding: 10px 20px;
+  }
+  .nav-menu { gap: 6px; }
+  .nav-link { height: 36px; padding: 0 12px; font-size: 13px; }
+}
+
+@media (max-width: 900px) {
+  .header .header-content {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    padding: 10px 16px;
+  }
+  .logo-section { order: 1; }
+  .nav-menu { order: 3; width: 100%; justify-content: flex-start; }
+  .header .header-content > button,
+  #site-header #btn-refresh { order: 2; }
+  .dropdown-menu { min-width: 200px; }
+}
+
+@media (max-width: 600px) {
+  .header .header-content { padding: 8px 12px; }
+  .header .logo { padding: 4px 8px; gap: 8px; }
+  .header .logo-icon { width: 32px; height: 32px; font-size: 18px; }
+  .header .logo > div { font-size: 14px; }
+  .header .logo-subtitle { font-size: 11px; }
+  .nav-link { height: 34px; padding: 0 10px; font-size: 12px; }
+  .dropdown-menu { top: 100%; }
+  .header .header-content > button,
+  #site-header #btn-refresh { height: 34px; padding: 0 12px; font-size: 13px; }
+}
+
+@media (max-width: 480px) {
+  .nav-menu { gap: 4px; }
+  .nav-link span { display: none; } /* оставляем иконки */
+  .nav-link { padding: 0 8px; }
+}
+
+/* ---------- Сервисные элементы из твоего лоадера ---------- */
+/* предупреждение, если header не загрузился */
+#site-header .alert.warning {
+  display: block;
+  margin: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  color: #43290a;
+  background: #fff6e5;
+  border: 1px solid #f2c97d;
+  font-size: 13px;
+}
+
+/* когда .nav-item.open выставлен скриптом */
+.nav-item.open > .nav-link {
+  background: var(--hover);
+  color: var(--accent-hover);
+}
+.nav-item.open > .dropdown-menu {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+  visibility: visible;
+  transition-delay: 0s;
+}
